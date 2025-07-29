@@ -1,23 +1,3 @@
-# AI Stock Market Chatbot with LLaMA, yfinance, and Streamlit
-#
-# This script creates a web-based chatbot that leverages a local LLaMA model (via Ollama)
-# to provide financial information, including real-time stock data, historical performance,
-# financial statements, and explanations of financial concepts.
-#
-# Author: Gemini
-# Date: July 29, 2025
-#
-# To Run This App:
-# 1. Install prerequisites:
-#    pip install streamlit pandas yfinance matplotlib plotly ollama
-#
-# 2. Install and run Ollama:
-#    - Download from https://ollama.com
-#    - Run the Ollama application.
-#    - Pull a model: `ollama pull llama3` (or another model of your choice)
-#
-# 3. Run the Streamlit app:
-#    streamlit run your_script_name.py
 
 import streamlit as st
 import pandas as pd
