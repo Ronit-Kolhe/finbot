@@ -1,3 +1,23 @@
+# AI Stock Market Chatbot with LLaMA, yfinance, and Streamlit
+#
+# This script creates a web-based chatbot that leverages a local LLaMA model (via Ollama)
+# to provide financial information, including real-time stock data, historical performance,
+# financial statements, and explanations of financial concepts.
+#
+# Author: Gemini
+# Date: July 29, 2025
+#
+# To Run This App:
+# 1. Install prerequisites:
+#    pip install streamlit pandas yfinance matplotlib plotly ollama
+#
+# 2. Install and run Ollama:
+#    - Download from https://ollama.com
+#    - Run the Ollama application.
+#    - Pull a model: `ollama pull llama3` (or another model of your choice)
+#
+# 3. Run the Streamlit app:
+#    streamlit run your_script_name.py
 
 import streamlit as st
 import pandas as pd
@@ -8,6 +28,7 @@ import ollama
 import json
 import re
 from datetime import datetime, timedelta
+from typing import Any, Optional, Tuple, Dict, List, Union
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -35,9 +56,21 @@ plt.rcParams.update({
 # --- Ollama Model Configuration ---
 OLLAMA_MODEL = 'llama3:8b-instruct-q3_K_M' # Make sure you have pulled this model with `ollama pull llama3`
 
+# --- Debug Flag ---
+DEBUG = False  # Set to True to show LLaMA tool commands
+
+# --- Period Labels Mapping ---
+PERIOD_LABELS = {
+    "7d": "7 Days",
+    "30d": "30 Days",
+    "90d": "90 Days",
+    "1y": "1 Year",
+    "5y": "5 Years"
+}
+
 # --- Helper Functions ---
 
-def get_stock_ticker(name):
+def get_stock_ticker(name: str) -> str:
     """
     Tries to find a stock ticker using yfinance's search.
     This is a simple implementation and might not always be accurate.
@@ -60,15 +93,15 @@ def get_stock_ticker(name):
     except Exception:
         return name.upper()
 
-def get_stock_data(ticker_symbol):
-    """Fetches real-time data for a given stock ticker."""
+def get_stock_data(ticker_symbol: str) -> Tuple[Dict, Optional[str]]:
+    """Fetches real-time data for a given stock ticker. Returns (data, error)."""
     try:
         stock = yf.Ticker(ticker_symbol)
         info = stock.info
         
         # Check if data was found
         if not info or 'currentPrice' not in info:
-            return None, f"Could not find data for ticker '{ticker_symbol}'. Please ensure it's a valid symbol (e.g., 'AAPL', 'MSFT', 'RELIANCE.NS')."
+            return None, f"Could not find data for ticker '{ticker_symbol}'. Please check the symbol and try again."
 
         data = {
             "name": info.get('longName', ticker_symbol),
@@ -83,45 +116,53 @@ def get_stock_data(ticker_symbol):
         }
         return data, None
     except Exception as e:
-        st.error(f"Error fetching data for {ticker_symbol} from yfinance: {e}")
+        st.error(f"An error occurred while fetching data for {ticker_symbol} from yfinance. Please try again later.")
         return None, f"An error occurred while fetching data for {ticker_symbol}."
 
-def get_historical_data(ticker_symbol, period="1mo"):
-    """Fetches historical stock data."""
+@st.cache_data(show_spinner=False)
+def get_historical_data(ticker_symbol: str, period: str = "1mo") -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    """Fetches historical stock data. Returns (DataFrame, error)."""
     try:
         stock = yf.Ticker(ticker_symbol)
         hist = stock.history(period=period)
         if hist.empty:
+            st.warning(f"No historical data found for '{ticker_symbol}' for the period '{period}'. Please check the ticker and period.")
             return None, f"Could not retrieve historical data for '{ticker_symbol}' for the period '{period}'."
         return hist, None
     except Exception as e:
-        st.error(f"Error fetching historical data for {ticker_symbol}: {e}")
+        st.error(f"An error occurred while fetching historical data for {ticker_symbol}. Please try again later.")
         return None, f"An error occurred while fetching historical data for {ticker_symbol}."
 
-def get_balance_sheet(ticker_symbol):
-    """Fetches the balance sheet for a given stock ticker."""
+@st.cache_data(show_spinner=False)
+def get_balance_sheet(ticker_symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    """Fetches the balance sheet for a given stock ticker. Returns (DataFrame, error)."""
     try:
         stock = yf.Ticker(ticker_symbol)
         balance_sheet = stock.balance_sheet
         if balance_sheet.empty:
+            st.warning(f"No balance sheet data found for '{ticker_symbol}'.")
             return None, f"Could not retrieve balance sheet for '{ticker_symbol}'."
         return balance_sheet, None
     except Exception as e:
+        st.error(f"An error occurred while fetching the balance sheet for {ticker_symbol}. Please try again later.")
         return None, f"An error occurred while fetching the balance sheet for {ticker_symbol}: {e}"
 
-def get_income_statement(ticker_symbol):
-    """Fetches the income statement for a given stock ticker."""
+@st.cache_data(show_spinner=False)
+def get_income_statement(ticker_symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    """Fetches the income statement for a given stock ticker. Returns (DataFrame, error)."""
     try:
         stock = yf.Ticker(ticker_symbol)
         income_stmt = stock.income_stmt
         if income_stmt.empty:
+            st.warning(f"No income statement data found for '{ticker_symbol}'.")
             return None, f"Could not retrieve income statement for '{ticker_symbol}'."
         return income_stmt, None
     except Exception as e:
+        st.error(f"An error occurred while fetching the income statement for {ticker_symbol}. Please try again later.")
         return None, f"An error occurred while fetching the income statement for {ticker_symbol}: {e}"
 
 
-def plot_price_history(df, ticker_symbol, period_label):
+def plot_price_history(df: pd.DataFrame, ticker_symbol: str, period_label: str) -> None:
     """Generates a line chart for historical price data using Matplotlib."""
     fig, ax = plt.subplots()
     df['Close'].plot(ax=ax, color='cyan', grid=True)
@@ -133,7 +174,7 @@ def plot_price_history(df, ticker_symbol, period_label):
     ax.legend([f'{ticker_symbol} Close'])
     st.pyplot(fig)
 
-def plot_volume(df, ticker_symbol, period_label):
+def plot_volume(df: pd.DataFrame, ticker_symbol: str, period_label: str) -> None:
     """Generates a bar chart for trading volume using Matplotlib."""
     fig, ax = plt.subplots()
     df['Volume'].plot(kind='bar', ax=ax, color='magenta')
@@ -145,7 +186,7 @@ def plot_volume(df, ticker_symbol, period_label):
     plt.tight_layout()
     st.pyplot(fig)
 
-def plot_candlestick(df, ticker_symbol, period_label):
+def plot_candlestick(df: pd.DataFrame, ticker_symbol: str, period_label: str) -> None:
     """Generates an interactive candlestick chart using Plotly."""
     fig = go.Figure(data=[go.Candlestick(x=df.index,
                                            open=df['Open'],
@@ -161,8 +202,8 @@ def plot_candlestick(df, ticker_symbol, period_label):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-def call_llama(prompt):
-    """Sends a prompt to the local LLaMA model and gets a response."""
+def call_llama(prompt: str) -> Optional[str]:
+    """Sends a prompt to the local LLaMA model and gets a response as a string, or None on error."""
     try:
         # The ollama library returns a dictionary, the response is in the 'response' key
         response = ollama.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}])
@@ -171,6 +212,23 @@ def call_llama(prompt):
         st.error(f"Error communicating with Ollama: {e}")
         st.error("Please ensure Ollama is running and you have pulled the model with `ollama pull llama3`.")
         return None
+
+def format_number(n: Union[float, int, str, None]) -> str:
+    """Format large numbers with commas and units (K, M, B)."""
+    if n is None or n == 'N/A':
+        return 'N/A'
+    try:
+        n = float(n)
+        if n >= 1e9:
+            return f"{n/1e9:.2f}B"
+        elif n >= 1e6:
+            return f"{n/1e6:.2f}M"
+        elif n >= 1e3:
+            return f"{n/1e3:.2f}K"
+        else:
+            return f"{n:,.2f}"
+    except Exception:
+        return str(n)
 
 # --- System Prompt for LLaMA ---
 # This prompt guides the model to act as a financial assistant and use specific tool commands.
@@ -208,8 +266,8 @@ You have access to the following tools:
 - Only respond with the tool command, nothing else.
 """
 
-def get_llama_tool_command(user_query):
-    """Gets the specific tool command from LLaMA."""
+def get_llama_tool_command(user_query: str) -> str:
+    """Gets the specific tool command from LLaMA for a user query."""
     prompt = f"{SYSTEM_PROMPT}\n\nUser Query: \"{user_query}\"\n\nYour Response:"
     response = call_llama(prompt)
     return response.strip() if response else ""
@@ -255,7 +313,7 @@ for message in st.session_state.messages:
                 st.markdown(message["content"]["text"])
             elif message["content"]["type"] == "financial_statement":
                 st.markdown(f"#### {message['content']['title']}")
-                st.dataframe(message['content']['data'])
+                st.info("Financial data is available above, but not stored in chat history for performance reasons.")
             elif message["content"]["type"] == "plot":
                  st.markdown(f"*(Displayed a {message['content']['plot_type']} for {message['content']['ticker']})*")
         else:
@@ -274,11 +332,13 @@ if prompt := st.chat_input("Ask about stocks..."):
     with st.chat_message("assistant"):
         with st.spinner("🧠 LLaMA is thinking..."):
             tool_command = get_llama_tool_command(prompt)
-            st.write(f"**LLaMA suggested action:** `{tool_command}`")
 
         # --- Tool Execution Logic ---
         if not tool_command:
              st.warning("The model could not determine an action. Please try rephrasing your query.")
+        
+        if DEBUG:
+            st.write(f"**LLaMA suggested action:** `{tool_command}`")
         
         elif tool_command.startswith("[GET_PRICE:"):
             ticker = tool_command.split(":")[1].strip("]")
@@ -291,13 +351,13 @@ if prompt := st.chat_input("Ask about stocks..."):
                     ### Stock Information for {data['name']} ({data['symbol']})
                     | Metric          | Value                  |
                     |-----------------|------------------------|
-                    | **Current Price** | **{data['price']}** |
-                    | Day High        | {data['day_high']}     |
-                    | Day Low         | {data['day_low']}      |
-                    | Previous Close  | {data['previous_close']}|
-                    | Volume          | {data['volume']:,}     |
-                    | Market Cap      | {data['market_cap']:,}  |
-                    | P/E Ratio       | {data['pe_ratio']:.2f}  |
+                    | **Current Price** | **{format_number(data['price'])}** |
+                    | Day High        | {format_number(data['day_high'])}     |
+                    | Day Low         | {format_number(data['day_low'])}      |
+                    | Previous Close  | {format_number(data['previous_close'])}|
+                    | Volume          | {format_number(data['volume'])}     |
+                    | Market Cap      | {format_number(data['market_cap'])}  |
+                    | P/E Ratio       | {format_number(data['pe_ratio'])}  |
                     """
                     st.markdown(response_text)
                     st.session_state.messages.append({"role": "assistant", "content": {"type": "stock_data", "text": response_text}})
@@ -305,45 +365,50 @@ if prompt := st.chat_input("Ask about stocks..."):
         elif tool_command.startswith("[PLOT_HISTORY:"):
             parts = tool_command.strip("[]").split(":")
             ticker, period = parts[1], parts[2]
-            period_map = {"7d": "7 Days", "30d": "30 Days", "90d": "90 Days", "1y": "1 Year", "5y": "5 Years"}
-            period_label = period_map.get(period, "Custom Period")
+            period_label = PERIOD_LABELS.get(period, "Custom Period")
             
             with st.spinner(f"Generating charts for {ticker} over {period_label}..."):
                 hist_df, error = get_historical_data(ticker, period)
                 if error:
-                    st.error(error)
+                    st.warning(error)
                 else:
                     st.markdown(f"#### Historical Data for {ticker} ({period_label})")
                     plot_price_history(hist_df, ticker, period_label)
                     plot_volume(hist_df, ticker, period_label)
-                    st.session_state.messages.append({"role": "assistant", "content": {"type": "plot", "plot_type": "history", "ticker": ticker}})
+                    if hist_df is not None and not hist_df.empty:
+                        csv = hist_df.to_csv().encode('utf-8')
+                        st.download_button(
+                            label="Download Historical Data as CSV",
+                            data=csv,
+                            file_name=f"{ticker}_history_{period}.csv",
+                            mime="text/csv"
+                        )
+                    st.session_state.messages.append({"role": "assistant", "content": {"type": "plot", "plot_type": "history", "ticker": ticker, "period": period}})
 
         elif tool_command.startswith("[PLOT_CANDLESTICK:"):
             parts = tool_command.strip("[]").split(":")
             ticker, period = parts[1], parts[2]
-            period_map = {"7d": "7 Days", "30d": "30 Days", "90d": "90 Days"}
-            period_label = period_map.get(period, "30 Days")
+            period_label = PERIOD_LABELS.get(period, "30 Days")
 
             with st.spinner(f"Generating candlestick chart for {ticker}..."):
                 hist_df, error = get_historical_data(ticker, period)
                 if error:
-                    st.error(error)
+                    st.warning(error)
                 else:
                     plot_candlestick(hist_df, ticker, period_label)
-                    st.session_state.messages.append({"role": "assistant", "content": {"type": "plot", "plot_type": "candlestick", "ticker": ticker}})
+                    st.session_state.messages.append({"role": "assistant", "content": {"type": "plot", "plot_type": "candlestick", "ticker": ticker, "period": period}})
         
         elif tool_command.startswith("[COMPARE:"):
             parts = tool_command.strip("[]").split(":")
             ticker1, ticker2, period = parts[1], parts[2], parts[3]
-            period_map = {"30d": "30 Days", "90d": "90 Days", "1y": "1 Year"}
-            period_label = period_map.get(period, "30 Days")
+            period_label = PERIOD_LABELS.get(period, "30 Days")
 
             with st.spinner(f"Comparing {ticker1} and {ticker2}..."):
                 hist1, err1 = get_historical_data(ticker1, period)
                 hist2, err2 = get_historical_data(ticker2, period)
 
                 if err1 or err2:
-                    st.error(err1 or err2)
+                    st.warning(err1 or err2)
                 else:
                     # Normalize data to compare performance
                     normalized1 = (hist1['Close'] / hist1['Close'].iloc[0]) * 100
@@ -358,21 +423,27 @@ if prompt := st.chat_input("Ask about stocks..."):
                     ax.legend()
                     ax.grid(True)
                     st.pyplot(fig)
-                    st.session_state.messages.append({"role": "assistant", "content": {"type": "plot", "plot_type": "comparison", "ticker": f"{ticker1} vs {ticker2}"}})
+                    st.session_state.messages.append({"role": "assistant", "content": {"type": "plot", "plot_type": "comparison", "ticker": f"{ticker1} vs {ticker2}", "period": period}})
 
         elif tool_command.startswith("[GET_BALANCE_SHEET:"):
             ticker = tool_command.split(":")[1].strip("]")
             with st.spinner(f"Fetching Balance Sheet for {ticker}..."):
                 balance_sheet, error = get_balance_sheet(ticker)
                 if error:
-                    st.error(error)
+                    st.warning(error)
                 else:
                     title = f"Balance Sheet for {ticker}"
                     st.markdown(f"#### {title}")
                     st.dataframe(balance_sheet)
-                    # Note: Storing large dataframes in session_state can be memory intensive.
-                    # This is a simplified approach. For production, consider caching.
-                    st.session_state.messages.append({"role": "assistant", "content": {"type": "financial_statement", "title": title, "data": balance_sheet.to_dict()}})
+                    if balance_sheet is not None and not balance_sheet.empty:
+                        csv = balance_sheet.to_csv().encode('utf-8')
+                        st.download_button(
+                            label="Download Balance Sheet as CSV",
+                            data=csv,
+                            file_name=f"{ticker}_balance_sheet.csv",
+                            mime="text/csv"
+                        )
+                    st.session_state.messages.append({"role": "assistant", "content": {"type": "financial_statement", "title": title, "ticker": ticker}})
 
 
         elif tool_command.startswith("[GET_INCOME_STATEMENT:"):
@@ -380,12 +451,20 @@ if prompt := st.chat_input("Ask about stocks..."):
             with st.spinner(f"Fetching Income Statement for {ticker}..."):
                 income_statement, error = get_income_statement(ticker)
                 if error:
-                    st.error(error)
+                    st.warning(error)
                 else:
                     title = f"Income Statement for {ticker}"
                     st.markdown(f"#### {title}")
                     st.dataframe(income_statement)
-                    st.session_state.messages.append({"role": "assistant", "content": {"type": "financial_statement", "title": title, "data": income_statement.to_dict()}})
+                    if income_statement is not None and not income_statement.empty:
+                        csv = income_statement.to_csv().encode('utf-8')
+                        st.download_button(
+                            label="Download Income Statement as CSV",
+                            data=csv,
+                            file_name=f"{ticker}_income_statement.csv",
+                            mime="text/csv"
+                        )
+                    st.session_state.messages.append({"role": "assistant", "content": {"type": "financial_statement", "title": title, "ticker": ticker}})
 
 
         elif tool_command.startswith("[EXPLAIN:"):
